@@ -1,0 +1,220 @@
+import numpy as np
+import tensorflow as tf
+import matplotlib.pyplot as plt
+
+
+from tensorflow.keras import Model
+from tensorflow.keras.layers import Input, Dense
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+
+
+
+def create_dataset(degree):
+    x_values = np.linspace(-10, 10, 3000)
+
+
+    equations = {
+        1: 7 * x_values + 12,
+        2: 2 * x_values**2 + 6 * x_values + 8,
+        3: 5 * x_values**3 + 2 * x_values**2 + 4 * x_values + 9
+    }
+
+
+    if degree not in equations:
+        raise ValueError("Degree must be 1, 2, or 3")
+
+
+    y_values = equations[degree]
+
+
+    x_values = x_values.reshape(-1, 1)
+    y_values = y_values.reshape(-1, 1)
+
+
+    x_train, x_remaining, y_train, y_remaining = train_test_split(
+        x_values,
+        y_values,
+        test_size=0.30,
+        random_state=42
+    )
+
+
+    x_valid, x_test, y_valid, y_test = train_test_split(
+        x_remaining,
+        y_remaining,
+        test_size=0.50,
+        random_state=42
+    )
+
+
+    return x_train, x_valid, x_test, y_train, y_valid, y_test
+
+
+
+
+def normalize_data(x_train, x_valid, x_test, y_train, y_valid, y_test):
+    input_scaler = StandardScaler()
+    output_scaler = StandardScaler()
+
+
+    x_train_norm = input_scaler.fit_transform(x_train)
+    x_valid_norm = input_scaler.transform(x_valid)
+    x_test_norm = input_scaler.transform(x_test)
+
+
+    y_train_norm = output_scaler.fit_transform(y_train)
+    y_valid_norm = output_scaler.transform(y_valid)
+    y_test_norm = output_scaler.transform(y_test)
+
+
+    return (
+        x_train_norm, x_valid_norm, x_test_norm,
+        y_train_norm, y_valid_norm, y_test_norm,
+        input_scaler, output_scaler
+    )
+
+
+
+
+def make_fcfnn(degree):
+    layer_sizes = {
+        1: [16, 16],
+        2: [32, 32, 16],
+        3: [64, 64, 32, 16]
+    }
+
+
+    input_layer = Input(shape=(1,), name="input")
+
+
+    x = input_layer
+    for neurons in layer_sizes[degree]:
+        x = Dense(neurons, activation="relu")(x)
+
+
+    output_layer = Dense(1, activation="linear", name="output")(x)
+
+
+    network = Model(
+        inputs=input_layer,
+        outputs=output_layer,
+        name=f"Polynomial_FCFNN_Degree_{degree}"
+    )
+
+
+    return network
+
+
+
+
+def fit_network(model, x_train, y_train, x_valid, y_valid):
+    model.compile(
+        optimizer="adam",
+        loss="mse",
+        metrics=["mae"]
+    )
+
+
+    history = model.fit(
+        x_train,
+        y_train,
+        validation_data=(x_valid, y_valid),
+        epochs=100,
+        batch_size=32,
+        verbose=0
+    )
+
+
+    return history
+
+
+
+
+def draw_loss_graph(history, degree):
+    plt.figure(figsize=(8, 5))
+    plt.plot(history.history["loss"], label="Train Loss")
+    plt.plot(history.history["val_loss"], label="Validation Loss")
+    plt.title(f"Loss Curve for Degree {degree}")
+    plt.xlabel("Epoch")
+    plt.ylabel("MSE Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f"loss_degree_{degree}.png")
+    plt.show()
+
+
+
+
+def draw_prediction_graph(model, x_test, y_test, output_scaler, degree):
+    predicted_scaled = model.predict(x_test)
+    predicted_original = output_scaler.inverse_transform(predicted_scaled)
+
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(y_test, predicted_original, alpha=0.6)
+    plt.title(f"Actual vs Predicted Output for Degree {degree}")
+    plt.xlabel("Actual Output")
+    plt.ylabel("Predicted Output")
+    plt.grid(True)
+    plt.savefig(f"actual_vs_predicted_degree_{degree}.png")
+    plt.show()
+
+
+
+
+def run_experiment(degree):
+    print("\n-----------------------------------")
+    print(f"Running FCFNN for Degree {degree}")
+    print("-----------------------------------")
+
+
+    x_train, x_valid, x_test, y_train, y_valid, y_test = create_dataset(degree)
+
+
+    (
+        x_train_norm, x_valid_norm, x_test_norm,
+        y_train_norm, y_valid_norm, y_test_norm,
+        input_scaler, output_scaler
+    ) = normalize_data(
+        x_train, x_valid, x_test,
+        y_train, y_valid, y_test
+    )
+
+
+    model = make_fcfnn(degree)
+    model.summary()
+
+
+    history = fit_network(
+        model,
+        x_train_norm,
+        y_train_norm,
+        x_valid_norm,
+        y_valid_norm
+    )
+
+
+    loss, mae = model.evaluate(x_test_norm, y_test_norm, verbose=0)
+
+
+    print(f"Test Loss for Degree {degree}: {loss:.6f}")
+    print(f"Test MAE for Degree {degree}: {mae:.6f}")
+
+
+    draw_loss_graph(history, degree)
+    draw_prediction_graph(model, x_test_norm, y_test, output_scaler, degree)
+
+
+
+
+def main():
+    for degree in [1, 2, 3]:
+        run_experiment(degree)
+
+
+
+
+if __name__ == "__main__":
+    main()
