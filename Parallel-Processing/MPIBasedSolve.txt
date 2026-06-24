@@ -8,7 +8,6 @@ drive.mount('/content/drive')
 !cat /content/drive/MyDrive/MPI/phone1.txt
 
 
-
 {CODE}
 
 
