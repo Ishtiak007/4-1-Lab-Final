@@ -1,0 +1,198 @@
+!nvidia-smi
+
+with open("input.txt", "w") as f:
+    f.write("1 2 3 2 5 255 0 1 2 255 100 100 100")
+
+
+{CODE}
+
+
+!nvcc histogram.cu -o histogram
+
+
+!./histogram 128 input.txt output.txt
+
+
+==============================CODE===================
+%%writefile histogram.cu
+
+#include <cuda_runtime.h>
+#include <iostream>
+#include <fstream>
+#include <vector>
+
+using namespace std;
+
+#define HIST_SIZE 256
+
+__global__ void histogramKernel(
+    int *data,
+    int *histogram,
+    int n)
+{
+    int tid =
+        blockIdx.x * blockDim.x +
+        threadIdx.x;
+
+    int stride =
+        blockDim.x * gridDim.x;
+
+    for(int i = tid; i < n; i += stride)
+    {
+        int value = data[i];
+
+        if(value >= 0 && value <= 255)
+        {
+            atomicAdd(
+                &histogram[value],
+                1);
+        }
+    }
+}
+
+int main(int argc, char* argv[])
+{
+    if(argc != 4)
+    {
+        cout << "Usage: "
+             << "./histogram <threads_per_block> <input_file> <output_file>"
+             << endl;
+        return 1;
+    }
+
+    int threadsPerBlock =
+        atoi(argv[1]);
+
+    string inputFile =
+        argv[2];
+
+    string outputFile =
+        argv[3];
+
+    ifstream fin(inputFile);
+
+    if(!fin.is_open())
+    {
+        cout << "Cannot open input file" << endl;
+        return 1;
+    }
+
+    vector<int> data;
+    int value;
+
+    while(fin >> value)
+    {
+        if(value >= 0 && value <= 255)
+            data.push_back(value);
+    }
+
+    fin.close();
+
+    int n = data.size();
+
+    int *d_data;
+    int *d_histogram;
+
+    cudaMalloc(
+        &d_data,
+        n * sizeof(int));
+
+    cudaMalloc(
+        &d_histogram,
+        HIST_SIZE * sizeof(int));
+
+    cudaMemcpy(
+        d_data,
+        data.data(),
+        n * sizeof(int),
+        cudaMemcpyHostToDevice);
+
+    cudaMemset(
+        d_histogram,
+        0,
+        HIST_SIZE * sizeof(int));
+
+    int blocks =
+        (n + threadsPerBlock - 1)
+        / threadsPerBlock;
+
+    cudaEvent_t start, stop;
+
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start);
+
+    histogramKernel<<<blocks, threadsPerBlock>>>(
+        d_data,
+        d_histogram,
+        n);
+
+    cudaDeviceSynchronize();
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+
+    float milliseconds = 0;
+
+    cudaEventElapsedTime(
+        &milliseconds,
+        start,
+        stop);
+
+    int histogram[HIST_SIZE];
+
+    cudaMemcpy(
+        histogram,
+        d_histogram,
+        HIST_SIZE * sizeof(int),
+        cudaMemcpyDeviceToHost);
+
+    ofstream fout(outputFile);
+
+    for(int i = 0; i < HIST_SIZE; i++)
+    {
+        fout << "H[" << i << "] = "
+             << histogram[i]
+             << endl;
+    }
+
+    fout.close();
+
+    cout << "Total Input Values : "
+         << n << endl;
+
+    cout << "Threads Per Block : "
+         << threadsPerBlock << endl;
+
+    cout << "Blocks Used : "
+         << blocks << endl;
+
+    cout << "Execution Time : "
+         << milliseconds
+         << " ms" << endl;
+
+    cudaFree(d_data);
+    cudaFree(d_histogram);
+
+    return 0;
+}
+=========================================Code==================
+
+
+
+
+
+128 = threads per block
+input.txt = input file
+output.txt = output file
+
+
+
+Example Output
+Total Input Values : 100000
+Threads Per Block : 128
+Blocks Used : 782
+Execution Time : 0.35 ms
+
+
